@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>10X STRESS // MELTDOWN MODE</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: 'Courier New', monospace; color: #ff0000; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+
+        /* HUD - CRITICAL THEME */
+        #hud {
+            position: absolute; top: 0; left: 0; width: 360px;
+            background: rgba(10, 0, 0, 0.95);
+            border: 2px solid #ff0000;
+            padding: 15px;
+            box-shadow: 0 0 50px rgba(255, 0, 0, 0.6);
+            z-index: 10;
+        }
+
+        h1 { margin: 0 0 10px 0; font-size: 24px; text-align: center; background: #ff0000; color: #000; padding: 5px; font-weight: 900; letter-spacing: 3px; animation: flash 0.5s infinite; }
+        @keyframes flash { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+
+        .section { margin-bottom: 15px; border: 1px solid #500; padding: 10px; }
+        label { display: flex; justify-content: space-between; font-weight: bold; font-size: 12px; margin-bottom: 5px; }
+        
+        /* SLIDERS - DANGER STYLE */
+        input[type=range] { width: 100%; accent-color: #ff0000; height: 10px; cursor: crosshair; }
+
+        .stat { font-size: 11px; color: #fff; margin-top: 5px; }
+        .val-danger { color: #ff0000; font-weight: bold; }
+        .val-extreme { color: #ffff00; font-weight: bold; text-shadow: 0 0 5px #f00; }
+
+        .cpu-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; margin-top: 5px; }
+        .core { height: 15px; background: #220000; border: 1px solid #440000; }
+        .core.active { background: #ff0000; box-shadow: 0 0 10px #ff0000; }
+
+        #kill-switch {
+            width: 100%; padding: 10px; background: #fff; color: #000; font-weight: bold;
+            border: none; cursor: pointer; font-size: 16px; margin-top: 10px;
+        }
+        #kill-switch:hover { background: #ccc; }
+    </style>
+</head>
+<body>
+
+    <div id="hud">
+        <h1>MELTDOWN</h1>
+        
+        <!-- GPU SECTION -->
+        <div class="section">
+            <label style="color:#ff5555;">GPU: RENDER SCALE (10X LOAD)</label>
+            <input type="range" id="res-slider" min="1.0" max="4.0" step="0.5" value="1.0">
+            <div class="stat">Resolution: <span id="res-txt" class="val-extreme">Native</span></div>
+            
+            <label style="margin-top:10px; color:#ff5555;">GPU: RAY LOOPS</label>
+            <input type="range" id="loop-slider" min="100" max="2000" step="100" value="200">
+            <div class="stat">Iterations: <span id="loop-txt" class="val-extreme">200</span></div>
+            
+            <div class="stat" style="margin-top:5px; border-top:1px dashed #500; padding-top:3px;">
+                FPS: <span id="fps" style="font-size:18px;">60</span> | Pixels: <span id="px-count">2M</span>
+            </div>
+        </div>
+
+        <!-- CPU SECTION -->
+        <div class="section">
+            <label style="color:#ff5555;">CPU: MATRIX WORKERS</label>
+            <input type="range" id="cpu-slider" min="0" max="32" step="1" value="0">
+            <div class="cpu-grid" id="cpu-viz"></div>
+            <div class="stat">Load: <span id="cpu-txt">IDLE</span></div>
+        </div>
+
+        <button id="kill-switch">STOP STRESS TEST</button>
+    </div>
+
+    <script type="importmap">
+        { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js';
+
+        // ===========================================
+        // 1. 10X CPU STRESS (MATRIX MULTIPLICATION)
+        // ===========================================
+        const cpuSlider = document.getElementById('cpu-slider');
+        const cpuViz = document.getElementById('cpu-viz');
+        const cpuTxt = document.getElementById('cpu-txt');
+        
+        // Allow over-subscription (Create more workers than cores to force context switching)
+        const logicalCores = navigator.hardwareConcurrency || 8;
+        const maxWorkers = 32; // Limit to 32 to prevent OS crash
+        cpuSlider.max = maxWorkers;
+
+        for(let i=0; i<maxWorkers; i++) {
+            const d = document.createElement('div');
+            d.className = 'core';
+            d.id = `core-${i}`;
+            cpuViz.appendChild(d);
+        }
+
+        // WORKER: MATRIX MATH (Heavy O(N^3) Complexity)
+        const workerBlob = new Blob([`
+            self.onmessage = function(e) {
+                if(e.data === 'burn') {
+                    // 10X Stress: Matrix Multiplication
+                    // This is much heavier than simple addition
+                    let size = 200; 
+                    let A = new Float32Array(size * size);
+                    let B = new Float32Array(size * size);
+                    
+                    // Fill with random
+                    for(let i=0; i<A.length; i++) { A[i] = Math.random(); B[i] = Math.random(); }
+
+                    while(true) {
+                        // Simulate Matrix Mult (Heavy CPU Cache usage)
+                        for(let i=0; i<size; i++) {
+                            for(let j=0; j<size; j++) {
+                                let sum = 0;
+                                for(let k=0; k<size; k++) {
+                                    // Math.tan added to stress FPU
+                                    sum += A[i*size + k] * B[k*size + j] + Math.tan(k);
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+        `], { type: 'text/javascript' });
+        const workerUrl = URL.createObjectURL(workerBlob);
+
+        let workers = [];
+
+        cpuSlider.addEventListener('input', (e) => {
+            const count = parseInt(e.target.value);
+            
+            // Add Workers
+            while(workers.length < count) {
+                const w = new Worker(workerUrl);
+                w.postMessage('burn');
+                workers.push(w);
+                document.getElementById(`core-${workers.length-1}`).classList.add('active');
+            }
+            // Remove Workers
+            while(workers.length > count) {
+                const w = workers.pop();
+                w.terminate();
+                document.getElementById(`core-${workers.length}`).classList.remove('active');
+            }
+
+            if(count > logicalCores) cpuTxt.innerHTML = "OVERLOAD (" + count + ")";
+            else cpuTxt.innerHTML = count + " THREADS";
+        });
+
+        // ===========================================
+        // 2. 10X GPU STRESS (RAYMARCHING)
+        // ===========================================
+        const canvas = document.createElement('canvas');
+        document.body.appendChild(canvas);
+        
+        // Force Context to keep buffer (Dangerous for memory)
+        const renderer = new THREE.WebGLRenderer({ 
+            canvas, 
+            powerPreference: "high-performance",
+            antialias: false,
+            depth: false,
+            stencil: false
+        });
+        
+        const scene = new THREE.Scene();
+        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1); // Fullscreen Quad
+
+        // --- THE 10X SHADER ---
+        const fragmentShader = `
+            precision highp float;
+            uniform float iTime;
+            uniform vec2 iResolution;
+            uniform vec2 iMouse;
+            uniform float iLoops; // User controlled loop count
+
+            // Heavy Noise
+            float hash(float n) { return fract(sin(n) * 758.5453); }
+            float noise(vec3 x) {
+                vec3 p = floor(x);
+                vec3 f = fract(x);
+                f = f * f * (3.0 - 2.0 * f);
+                float n = p.x + p.y * 57.0 + p.z * 113.0;
+                return mix(mix(mix(hash(n + 0.0), hash(n + 1.0), f.x),
+                            mix(hash(n + 57.0), hash(n + 58.0), f.x), f.y),
+                        mix(mix(hash(n + 113.0), hash(n + 114.0), f.x),
+                            mix(hash(n + 170.0), hash(n + 171.0), f.x), f.y), f.z);
+            }
+
+            // 8-Octave FBM (Very expensive)
+            float fbm(vec3 p) {
+                float f = 0.0;
+                float a = 0.5;
+                for(int i=0; i<8; i++) {
+                    f += a * noise(p);
+                    p *= 2.0;
+                    a *= 0.5;
+                }
+                return f;
+            }
+
+            mat2 rot(float a) { return mat2(cos(a), -sin(a), sin(a), cos(a)); }
+
+            void main() {
+                vec2 uv = (gl_FragCoord.xy - 0.5 * iResolution.xy) / iResolution.y;
+                
+                // Camera Rotation
+                vec3 ro = vec3(0.0, 3.0, -9.0);
+                vec3 rd = normalize(vec3(uv, 1.0));
+                
+                // Mouse Move
+                float mx = iMouse.x / iResolution.x * 6.28;
+                float my = (iMouse.y / iResolution.y - 0.5) * 3.0;
+                ro.yz *= rot(my); rd.yz *= rot(my);
+                ro.xz *= rot(mx); rd.xz *= rot(mx);
+
+                vec3 col = vec3(0.0);
+                float t = 0.0;
+                vec3 p = ro;
+                float alpha = 0.0;
+
+                // 10X LOOP STRUCTURE
+                // Dynamic loop count based on slider
+                for(float i=0.0; i<2000.0; i++) {
+                    if(i > iLoops) break;
+
+                    float d = length(p);
+
+                    // Event Horizon
+                    if(d < 1.5) {
+                        col = mix(col, vec3(0.0), 1.0);
+                        break;
+                    }
+
+                    // Extreme Gravity (Light bending)
+                    float g = 0.2 / (d*d + 0.01);
+                    rd = normalize(rd - p * g * 0.05); // Bend towards p
+
+                    // Volumetric Disk
+                    if(d > 2.0 && d < 8.0 && abs(p.y) < 1.5) {
+                        
+                        // Coordinate Warping (GPU Stress)
+                        vec3 q = p;
+                        q.xz *= rot(iTime * (5.0/d)); // Spin
+                        
+                        float den = fbm(q * 1.5 + vec3(0, iTime, 0));
+                        
+                        // Apply Density
+                        float mask = smoothstep(2.0, 3.0, d) * smoothstep(8.0, 4.0, d);
+                        float val = den * mask * 0.1 * exp(-abs(p.y)*2.0);
+                        
+                        if(val > 0.001) {
+                            // Color mapping
+                            col += vec3(1.0, 0.3, 0.1) * val * (1.0-alpha);
+                            alpha += val;
+                        }
+                    }
+
+                    if(alpha > 0.99) break;
+
+                    // Tiny steps for maximum calculations
+                    t += 0.05; 
+                    p += rd * 0.05;
+                    
+                    if(t > 20.0) break;
+                }
+                
+                // Bloom / Glow
+                col += vec3(0.1, 0.0, 0.0) * (1.0 / length(uv));
+
+                gl_FragColor = vec4(col, 1.0);
+            }
+        `;
+
+        const vertexShader = `void main() { gl_Position = vec4(position, 1.0); }`;
+
+        const uniforms = {
+            iTime: { value: 0 },
+            iResolution: { value: new THREE.Vector2() },
+            iMouse: { value: new THREE.Vector2() },
+            iLoops: { value: 200 }
+        };
+
+        const material = new THREE.ShaderMaterial({ fragmentShader, vertexShader, uniforms });
+        scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material));
+
+        // --- CONTROLS ---
+        const resSlider = document.getElementById('res-slider');
+        const loopSlider = document.getElementById('loop-slider');
+        const resTxt = document.getElementById('res-txt');
+        const loopTxt = document.getElementById('loop-txt');
+        const fpsTxt = document.getElementById('fps');
+        const pxTxt = document.getElementById('px-count');
+        const stopBtn = document.getElementById('kill-switch');
+
+        // 1. RESOLUTION SCALER (The main 10x factor)
+        function updateRes() {
+            const scale = parseFloat(resSlider.value);
+            const w = window.innerWidth * scale;
+            const h = window.innerHeight * scale;
+            
+            // Set size without resizing style (Supersampling)
+            renderer.setSize(window.innerWidth, window.innerHeight, false);
+            renderer.setPixelRatio(scale);
+            
+            uniforms.iResolution.value.set(w, h);
+            
+            resTxt.innerText = scale.toFixed(1) + "x (" + Math.floor(w) + "x" + Math.floor(h) + ")";
+            
+            // Calc Pixels
+            const millions = (w * h / 1000000).toFixed(1);
+            pxTxt.innerText = millions + "M px/frame";
+
+            if(scale > 2.0) resTxt.style.color = "#f00";
+        }
+        resSlider.addEventListener('change', updateRes); // Change on release to prevent instant crash
+        window.addEventListener('resize', updateRes);
+        updateRes();
+
+        // 2. LOOP SCALER
+        loopSlider.addEventListener('input', (e) => {
+            uniforms.iLoops.value = parseFloat(e.target.value);
+            loopTxt.innerText = e.target.value;
+        });
+
+        // 3. MOUSE
+        window.addEventListener('mousemove', (e) => {
+            uniforms.iMouse.value.set(e.clientX, window.innerHeight - e.clientY);
+        });
+
+        // 4. STOP BUTTON
+        stopBtn.addEventListener('click', () => {
+            renderer.setAnimationLoop(null); // Stop Rendering
+            // Kill workers
+            workers.forEach(w => w.terminate());
+            workers = [];
+            document.body.innerHTML = "<h1 style='color:white; text-align:center; margin-top:20%'>TEST STOPPED. SYSTEM SAFE.</h1>";
+        });
+
+        // --- RENDER LOOP ---
+        let lastTime = 0;
+        let frames = 0;
+        let timer = 0;
+
+        function animate(time) {
+            uniforms.iTime.value = time * 0.001;
+            renderer.render(scene, camera);
+
+            // FPS
+            frames++;
+            if(time - timer >= 1000) {
+                fpsTxt.innerText = frames;
+                if(frames < 10) fpsTxt.style.color = "red";
+                else fpsTxt.style.color = "white";
+                frames = 0;
+                timer = time;
+            }
+        }
+        renderer.setAnimationLoop(animate);
+
+    </script>
+</body>
+</html>
